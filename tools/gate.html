@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<title>Pharma &amp; Aerospace OEM Plants</title>
+<style>
+:root{--bg:#F3F5F6;--surface:#FFFFFF;--ink:#15202A;--muted:#56626D;--line:#D6DDE2;--accent:#0E6F8E;--hot:#9A321C;color-scheme:light}
+@media (prefers-color-scheme:dark){:root{--bg:#10161B;--surface:#172028;--ink:#E5EBEF;--muted:#9BA7B1;--line:#2A3540;--accent:#5DB9D7;--hot:#F3977C;color-scheme:dark}}
+*{box-sizing:border-box}
+body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;background:var(--bg);color:var(--ink);font:16px/1.5 "Source Sans 3",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;padding:16px}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:28px 24px;width:100%;max-width:380px}
+h1{font:600 30px/1.1 "Barlow Semi Condensed","Arial Narrow",system-ui,sans-serif;margin:0 0 6px}
+p{margin:0 0 16px;color:var(--muted);font-size:15px}
+label{display:block;font-size:14px;color:var(--muted);margin-bottom:6px}
+.row{display:flex;gap:8px}
+input{flex:1;min-width:0;font:inherit;font-size:20px;letter-spacing:.25em;padding:8px 12px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--ink)}
+button{font:inherit;font-weight:600;padding:8px 18px;border-radius:8px;border:1px solid var(--accent);background:var(--accent);color:var(--surface);cursor:pointer}
+button:disabled{opacity:.6;cursor:wait}
+input:focus-visible,button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.err{color:var(--hot);font-size:14px;min-height:21px;margin:10px 0 0}
+.fine{font-size:12.5px;margin:16px 0 0}
+</style>
+</head>
+<body>
+<main class="card">
+  <h1>Pharma &amp; Aerospace OEM Plants</h1>
+  <p>Enter the access code to open the map.</p>
+  <form id="f" autocomplete="off">
+    <label for="code">Access code</label>
+    <div class="row"><input id="code" type="password" inputmode="numeric" autocomplete="off" required autofocus><button id="go" type="submit">Open</button></div>
+    <p class="err" id="err" role="alert"></p>
+  </form>
+</main>
+<script>
+/* The map and its data are stored encrypted (AES-GCM, key derived from the access code with PBKDF2-SHA-256); it is decrypted in the browser. */
+const P=/*PAYLOAD*/;
+const b64=s=>Uint8Array.from(atob(s),c=>c.charCodeAt(0));
+async function unlock(code){
+  const base=await crypto.subtle.importKey('raw',new TextEncoder().encode(code),'PBKDF2',false,['deriveKey']);
+  const key=await crypto.subtle.deriveKey({name:'PBKDF2',salt:b64(P.salt),iterations:P.iter,hash:'SHA-256'},base,{name:'AES-GCM',length:256},false,['decrypt']);
+  const plain=await crypto.subtle.decrypt({name:'AES-GCM',iv:b64(P.iv)},key,b64(P.ct));
+  return await new Response(new Blob([plain]).stream().pipeThrough(new DecompressionStream('gzip'))).text();}
+const f=document.getElementById('f'),inp=document.getElementById('code'),err=document.getElementById('err'),go=document.getElementById('go');
+async function tryCode(code,remember){go.disabled=true;err.textContent='Checking…';
+  try{const html=await unlock(code);if(remember){try{sessionStorage.setItem('pao-code',code);}catch(e){}}document.open();document.write(html);document.close();}
+  catch(e){if(!remember){try{sessionStorage.removeItem('pao-code');}catch(x){}}err.textContent=e&&e.name==='OperationError'?'That code is not right. Try again.':'This browser could not open the map. Try an up-to-date Chrome, Edge, Safari or Firefox.';go.disabled=false;inp.focus();inp.select();}}
+f.addEventListener('submit',ev=>{ev.preventDefault();const c=inp.value.trim();if(c)tryCode(c,true);});
+if(!window.crypto||!crypto.subtle||typeof DecompressionStream==='undefined'){err.textContent='Open this page in an up-to-date browser over https.';go.disabled=true;}
+else{let c=null;try{c=sessionStorage.getItem('pao-code');}catch(e){}if(c)tryCode(c,false);}
+</script>
+</body>
+</html>
