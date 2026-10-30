@@ -10,7 +10,9 @@
      without: the --expect selector (default "#list .row") is found;
    - the page makes no request to any other server, and has no script errors, blocked loads or
      fingerprint failures;
-   - a deliberately altered copy of a fingerprinted file (lib/*.js, fonts/fonts.css) is refused by the browser.
+   - a deliberately altered copy of a fingerprinted file (lib/*.js, fonts/fonts.css) is refused by the browser;
+   - if the site has a home-screen icon: the code screen and the unlocked page both carry it (180x180) and
+     full-screen mode, and the app manifest loads through the page's security policy with all its icons.
  Prints PASS or FAIL.
 */
 const fs = require('fs'), path = require('path'), http = require('http');
@@ -22,7 +24,15 @@ const code = process.env.ACCESS_CODE;
 if (!sitePath || !code) { console.error('usage: ACCESS_CODE=<code> node tools/check_site.js <index.html> [data.json|-] [--expect selector]'); process.exit(2); }
 const data = dataArg !== '-' && fs.existsSync(dataArg) && dataArg.endsWith('.json') ? JSON.parse(fs.readFileSync(dataArg, 'utf8')) : null;
 const dir = path.dirname(path.resolve(sitePath)), file = path.basename(sitePath);
-const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'application/javascript', '.css': 'text/css', '.woff2': 'font/woff2', '.json': 'application/json', '.txt': 'text/plain' };
+const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'application/javascript', '.css': 'text/css', '.woff2': 'font/woff2', '.json': 'application/json', '.txt': 'text/plain', '.png': 'image/png', '.webmanifest': 'application/manifest+json' };
+const wantsIcon = /rel="apple-touch-icon"/.test(fs.readFileSync(sitePath, 'utf8'));
+// home-screen icon and app mode, as a phone reads them from whatever page is showing
+const homeScreen = p => p.evaluate(async () => {
+  const q = s => document.querySelector(s), size = href => new Promise(res => { const im = new Image(); im.onload = () => res(im.naturalWidth + 'x' + im.naturalHeight); im.onerror = () => res('failed'); im.src = href; });
+  const icon = q('link[rel="apple-touch-icon"]');
+  return { icon: icon ? await size(icon.href) : 'missing', manifestLinked: !!q('link[rel="manifest"]'),
+    appMode: (q('meta[name="apple-mobile-web-app-capable"]') || {}).content || 'missing', title: (q('meta[name="apple-mobile-web-app-title"]') || {}).content || 'missing' };
+});
 const srv = http.createServer((q, r) => {
   const p = path.join(dir, decodeURIComponent(q.url.split('?')[0]));
   if (!p.startsWith(dir) || !fs.existsSync(p) || fs.statSync(p).isDirectory()) { r.writeHead(404); return r.end(); }
@@ -44,6 +54,7 @@ async function open(ctx, base) {
     // normal visit
     const ctx = await b.newContext({ viewport: { width: 1200, height: 900 } });
     const { p, log } = await open(ctx, base);
+    const gateHome = wantsIcon ? await homeScreen(p) : null;
     await p.fill('#code', wrong); await p.click('#go');
     await p.waitForFunction(() => /not right/.test((document.getElementById('err') || {}).textContent || ''), null, { timeout: 30000 }).catch(() => problems.push('a wrong code was not refused'));
     await p.fill('#code', code); await p.click('#go');
@@ -62,6 +73,25 @@ async function open(ctx, base) {
       info.found = await p.evaluate(s => document.querySelectorAll(s).length, sel);
     }
     info.fontsLoaded = await p.evaluate(() => document.fonts ? [...document.fonts].filter(f => f.status === 'loaded').length : -1);
+    if (wantsIcon) {
+      // the same icon and app mode on the code screen and on the unlocked page; the manifest must load
+      // through the page's Content Security Policy, and every icon it lists must load at its stated size
+      const pageHome = await homeScreen(p);
+      for (const [where, h] of [['code screen', gateHome], ['unlocked page', pageHome]]) {
+        if (h.icon !== '180x180') problems.push(where + ': home-screen icon ' + h.icon);
+        if (h.appMode !== 'yes') problems.push(where + ': full-screen (app) mode is ' + h.appMode);
+        if (!h.manifestLinked) problems.push(where + ': no app manifest');
+      }
+      const cdp = await ctx.newCDPSession(p), am = await cdp.send('Page.getAppManifest');
+      let man = null; try { man = JSON.parse(am.data || ''); } catch (e) {}
+      if (!man) problems.push('the app manifest did not load' + (am.errors && am.errors.length ? ': ' + am.errors.map(e => e.message).join(' | ') : ''));
+      else {
+        const sizes = await p.evaluate(async list => Promise.all(list.map(ic => new Promise(res => { const im = new Image(); im.onload = () => res(ic.sizes === im.naturalWidth + 'x' + im.naturalHeight ? 'ok' : ic.src + ' is ' + im.naturalWidth + 'x' + im.naturalHeight); im.onerror = () => res(ic.src + ' failed'); im.src = new URL(ic.src, location.href).href; }))), man.icons || []);
+        sizes.filter(s => s !== 'ok').forEach(s => problems.push('manifest icon ' + s));
+        if (man.display !== 'standalone') problems.push('manifest display is ' + man.display);
+      }
+      info.homeScreen = { icon: pageHome.icon, title: pageHome.title, appMode: pageHome.appMode, manifest: man ? man.short_name + ', ' + (man.icons || []).length + ' icons, ' + man.display : 'not loaded' };
+    }
     if (log.outside.length) problems.push('requests to other servers: ' + [...new Set(log.outside)].slice(0, 5).join(', '));
     if (log.errs.length) problems.push('page errors: ' + log.errs.slice(0, 3).join(' | '));
     const bad = log.console.filter(t => /integrity|digest|Content Security Policy|Refused to|Failed to load/i.test(t));
