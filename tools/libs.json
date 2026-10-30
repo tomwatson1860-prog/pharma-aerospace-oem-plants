@@ -1,0 +1,21 @@
+{
+ "libs": [
+  {
+   "name": "d3@7.8.5",
+   "local": "lib/d3-7.8.5.min.js",
+   "integrity": "sha384-su5kReKyYlIFrI62mbQRKXHzFobMa7BHp1cK6julLPbnYcCW9NIZKJiTODjLPeDh",
+   "urls": [
+    "https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js",
+    "https://cdn.jsdelivr.net/npm/d3@7.8.5/dist/d3.min.js"
+   ]
+  },
+  {
+   "name": "topojson-client@3.1.0",
+   "local": "lib/topojson-client-3.1.0.min.js",
+   "integrity": "sha384-Ukv1p/xTma6P4/2bY5KzWBw+ydSpXmhCMtyciIQVDJ1RmOxtCYNMF1uXT9T63H67",
+   "urls": [
+    "https://cdn.jsdelivr.net/npm/topojson-client@3.1.0/dist/topojson-client.min.js"
+   ]
+  }
+ ]
+}
